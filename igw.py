@@ -5,7 +5,7 @@
 #
 __author__ = "GhostTalker"
 __copyright__ = "Copyright 2023, The GhostTalker project"
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 __status__ = "DEV"
 
 
@@ -14,6 +14,7 @@ import os
 import sys
 import time
 import datetime
+import json
 import requests
 import configparser
 import subprocess
@@ -26,8 +27,8 @@ class igw(object):
     
     ## read config
     _config = configparser.ConfigParser()
-    _rootdir = os.path.dirname(os.path.abspath('config.ini'))
-    _config.read(_rootdir + "config.ini")
+    _rootdir = os.path.dirname(os.path.abspath(__file__))
+    _config.read(os.path.join(_rootdir, "config.ini"))
     _env_ssh_path = _config.get("ENVIROMENT", "SSH_PATH", fallback='/usr/bin')
     _env_python_path = _config.get("ENVIROMENT", "PYTHON_PATH", fallback='/usr/bin')
     _unifi_host = _config.get("UNIFI", "UNIFI_HOST")
@@ -37,14 +38,6 @@ class igw(object):
     _prometheus_enable = _config.getboolean("PROMETHEUS", "PROMETHEUS_ENABLE", fallback=False)
     _prometheus_port = _config.get("PROMETHEUS", "PROMETHEUS_PORT", fallback=8001)
     _sleeptime_between_check = _config.get("RUNTIME_PARAM", "SLEEPTIME_BETWEEN_CHECK", fallback=10)
-
-    # Prometheus metric for build and running info
-    self.igw_version_info = prometheus_client.Info('rmd_build_version', 'Description of info')
-    self.igw_version_info.info({'version': __version__, 'status': __status__, 'started': self.timestamp_to_readable_datetime(self.makeTimestamp())})
-    self.igw_script_running_info = prometheus_client.Gauge('igw_script_cycle_info', 'Actual cycle of the running script')
-    self.igw_script_running_info.set(0)
-    self.igw_metric_status_info = prometheus_client.Gauge('igw_metric_status_info', 'Status of internet connection') 
-    self.igw_metric_status_info.set(0)
 
 
     def __init__(self):
@@ -57,6 +50,14 @@ class igw(object):
             prometheus_client.start_http_server(int(igw._prometheus_port))	
 
 
+        # Prometheus metric for build and running info
+        self.igw_version_info = prometheus_client.Info('rmd_build_version', 'Description of info')
+        self.igw_version_info.info({'version': __version__, 'status': __status__, 'started': self.timestamp_to_readable_datetime(self.makeTimestamp())})
+        self.igw_script_running_info = prometheus_client.Gauge('igw_script_cycle_info', 'Actual cycle of the running script')
+        self.igw_script_running_info.set(0)
+        self.igw_metric_status_info = prometheus_client.Gauge('igw_metric_status_info', 'Status of internet connection') 
+        self.igw_metric_status_info.set(0)
+
     def check_igw(self):
         try_counter = 2
         counter = 0
@@ -64,15 +65,15 @@ class igw(object):
         while counter < try_counter:
 
             try:
-                result = requests.head('https://google.ch')
+                result = requests.head('https://www.google.ch')
                 result.raise_for_status()
 
             except requests.exceptions.RequestException as err:
                 logging.info(f"Internet is not reachable! Error: {err}")                
 
             if result.status_code != 200:
-                logging.info("Waiting {} seconds and trying again").format(self._sleeptime_between_check)
-                time.sleep(self._sleeptime_between_check)
+                logging.info(("Waiting {} seconds and trying again").format(self._sleeptime_between_check))
+                time.sleep(int(self._sleeptime_between_check))
                 counter = counter + 1
             else:
                 logging.info("Internet is reachable, continuing...")
@@ -80,7 +81,7 @@ class igw(object):
                 return
 
         self.internet_status = 1
-        echo ('self.restart_unifi_port()')
+        self.restart_unifi_port()
 
 
     def restart_unifi_port(self):        
