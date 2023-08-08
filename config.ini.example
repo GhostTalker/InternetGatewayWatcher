@@ -1,0 +1,27 @@
+######################################################
+#                                                    #
+#   Configuration file for InternetGatewayWatcher    #
+#                                                    #
+######################################################
+
+[ENVIROMENT]
+SSH_PATH: /usr/bin
+PYTHON_PATH: /usr/bin
+
+[LOGGING]
+LOG_MODE: console/logfile
+LOG_FILENAME: igw.log
+LOG_LEVEL: INFO/DEBUG/ERROR
+
+[PROMETHEUS]
+PROMETHEUS_ENABLE: True/False
+PROMETHEUS_PORT: 8001
+
+[UNIFI]
+UNIFI_HOST: <IP>
+UNIFI_USER: <Username>
+UNIFI_PORT: <Port>
+UNIFI_OFF_ON_SLEEPTIME: 5
+
+[RUNTIME_PARAM]
+SLEEPTIME_BETWEEN_CHECK: 10
