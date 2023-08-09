@@ -5,7 +5,7 @@
 #
 __author__ = "GhostTalker"
 __copyright__ = "Copyright 2023, The GhostTalker project"
-__version__ = "1.0.2"
+__version__ = "1.0.5"
 __status__ = "DEV"
 
 
@@ -46,12 +46,12 @@ class igw(object):
         self.internet_status = 0
 
         # Start up the server to expose the metrics.
-        if igw._prometheus_enable:
+        if self._prometheus_enable:
             prometheus_client.start_http_server(int(igw._prometheus_port))	
 
 
         # Prometheus metric for build and running info
-        self.igw_version_info = prometheus_client.Info('rmd_build_version', 'Description of info')
+        self.igw_version_info = prometheus_client.Info('igw_build_version', 'Description of info')
         self.igw_version_info.info({'version': __version__, 'status': __status__, 'started': self.timestamp_to_readable_datetime(self.makeTimestamp())})
         self.igw_script_running_info = prometheus_client.Gauge('igw_script_cycle_info', 'Actual cycle of the running script')
         self.igw_script_running_info.set(0)
@@ -63,22 +63,23 @@ class igw(object):
         counter = 0
 		
         while counter < try_counter:
-
             try:
                 result = requests.head('https://www.google.ch')
                 result.raise_for_status()
-
+       
+                if result.status_code != 200:
+                    logging.info(("Waiting {} seconds and trying again").format(self._sleeptime_between_check))
+                    time.sleep(int(self._sleeptime_between_check))
+                    counter = counter + 1
+                else:
+                    logging.info("Internet is reachable, continuing...")
+                    self.internet_status = 0
+                    return
+       
             except requests.exceptions.RequestException as err:
-                logging.info(f"Internet is not reachable! Error: {err}")                
-
-            if result.status_code != 200:
-                logging.info(("Waiting {} seconds and trying again").format(self._sleeptime_between_check))
+                logging.info(f"Internet is not reachable! Error: {err}")
                 time.sleep(int(self._sleeptime_between_check))
                 counter = counter + 1
-            else:
-                logging.info("Internet is reachable, continuing...")
-                self.internet_status = 0
-                return
 
         self.internet_status = 1
         self.restart_unifi_port()
