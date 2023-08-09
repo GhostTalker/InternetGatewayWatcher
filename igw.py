@@ -5,8 +5,8 @@
 #
 __author__ = "GhostTalker"
 __copyright__ = "Copyright 2023, The GhostTalker project"
-__version__ = "1.0.5"
-__status__ = "DEV"
+__version__ = "1.1.5"
+__status__ = "TEST"
 
 
 # generic/built-in and other libs
@@ -21,6 +21,7 @@ import subprocess
 import logging
 import logging.handlers
 import prometheus_client
+from threading import Thread
 
 
 class igw(object):
@@ -44,6 +45,8 @@ class igw(object):
 
         # Define variables
         self.internet_status = 0
+        self.ping_latenz = ""
+        self.ping_status = 1
 
         # Start up the server to expose the metrics.
         if self._prometheus_enable:
@@ -57,32 +60,56 @@ class igw(object):
         self.igw_script_running_info.set(0)
         self.igw_metric_status_info = prometheus_client.Gauge('igw_metric_status_info', 'Status of internet connection') 
         self.igw_metric_status_info.set(0)
+        self.igw_metric_ping_status = prometheus_client.Gauge('igw_metric_ping_status', 'Ping to google.ch') 
+        self.igw_metric_ping_latenz = prometheus_client.Gauge('igw_metric_ping_latenz', 'Latenz to google.ch') 
 
     def check_igw(self):
         try_counter = 2
         counter = 0
-		
+        timeout_duration = 10  # Anzahl der Sekunden, bevor ein Timeout-Fehler ausgelöst wird
+    		
         while counter < try_counter:
             try:
-                result = requests.head('https://www.google.ch')
+                result = requests.head('https://www.google.ch', timeout=timeout_duration)
                 result.raise_for_status()
-       
+    
                 if result.status_code != 200:
-                    logging.info(("Waiting {} seconds and trying again").format(self._sleeptime_between_check))
+                    logging.warn(("Waiting {} seconds and trying again").format(self._sleeptime_between_check))
                     time.sleep(int(self._sleeptime_between_check))
                     counter = counter + 1
                 else:
                     logging.info("Internet is reachable, continuing...")
                     self.internet_status = 0
                     return
-       
-            except requests.exceptions.RequestException as err:
-                logging.info(f"Internet is not reachable! Error: {err}")
+    
+            except requests.exceptions.Timeout:
+                logging.error("Request timed out after {} seconds.".format(timeout_duration))
                 time.sleep(int(self._sleeptime_between_check))
                 counter = counter + 1
-
+            except requests.exceptions.RequestException as err:
+                logging.error(f"Internet is not reachable! Error: {err}")
+                time.sleep(int(self._sleeptime_between_check))
+                counter = counter + 1
+    
         self.internet_status = 1
+        logging.info("Restart port on UNIFI switch.")
         self.restart_unifi_port()
+
+
+    def check_ping(self):
+        # Loop for checking every configured interval
+        while True:
+            try:
+                cmd = "ping -c 1 google.ch | grep 'bytes from' | cut -d '=' -f 4 | cut -d ' ' -f 1"
+                response = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL)
+                self.ping_latenz = response.decode("utf-8").strip()
+                self.ping_status = 0
+            except subprocess.CalledProcessError as err:
+                self.ping_status = 1
+                logging.error(f"Fehler beim Pingen von google.ch! Error: {err}")
+            except Exception as err:
+                self.ping_status = 1
+                logging.error(f"Ein unbekannter Fehler ist aufgetreten! Error: {err}")      
 
 
     def restart_unifi_port(self):        
@@ -90,15 +117,18 @@ class igw(object):
         try:
             subprocess.check_output([cmd], shell=True)
         except subprocess.CalledProcessError:
-            logging.info("Connection to unifi device failed")
+            logging.error("Connection to unifi device failed")
 
 
     def create_prometheus_metrics(self):
         logging.info(f'create metrics for prometheus...')
-
-        self.igw_script_running_info.inc()
-        self.igw_metric_status_info.set(self.internet_status)
-       
+        try:
+            self.igw_script_running_info.inc()
+            self.igw_metric_status_info.set(self.internet_status)
+            self.igw_metric_ping_status.set(self.ping_status) 
+            self.igw_metric_ping_latenz.set(self.ping_latenz)
+        except:
+		    logging.error("Creating metrics for prometheus failed.")
 
     def makeTimestamp(self):
         ts = int(time.time())
@@ -153,21 +183,27 @@ if __name__ == '__main__':
     igw = igw()
 
     try:
+        threads = []
+        thread = Thread(target=igw.check_ping)
+        thread.start()
+        threads.append(thread)
+
         # Loop for checking every configured interval
         while True:
-
             # Start checking internet
             logging.info("Checking Internet connectivity...")	
             igw.check_igw()
-			
+
             # Create prometheus metrics
             if igw._prometheus_enable:
-                igw.create_prometheus_metrics()   
+                igw.create_prometheus_metrics() 
 
             # Waiting for next check			
             logging.info("Waiting {} seconds for next check...".format(igw._sleeptime_between_check))
             time.sleep(int(igw._sleeptime_between_check))
-	
+
     except KeyboardInterrupt:
-        logging.info("IGW will be stopped")
+        logging.info("IGW and Ping thread will be stopped.")
+        for thread in threads:
+            thread.join()
         exit(0)	
